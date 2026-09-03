@@ -5,7 +5,6 @@ async function main() {
 
   if (!userIntention) {
     console.error(" Erreur : Veuillez fournir une intention de test.");
-    console.log('Exemple : npx tsx ai/index.ts "Ajouter une tâche et vérifier sa présence"');
     process.exit(1);
   }
 

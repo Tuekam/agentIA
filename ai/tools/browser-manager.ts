@@ -1,70 +1,41 @@
-import { chromium, Browser, Page } from 'playwright';
-import * as path from 'path';
-import * as fs from 'fs';
+import { chromium, Browser, Page } from '@playwright/test';
 
-let sharedBrowser: Browser | null = null;
-let sharedPage: Page | null = null;
+let browser: Browser | null = null;
+let page: Page | null = null;
 
-export async function getSharedPage(url: string): Promise<Page> {
-  if (!sharedBrowser) {
-    sharedBrowser = await chromium.launch({ headless: true });
+export async function getPage(url: string): Promise<Page> {
+  if (!browser) browser = await chromium.launch({ headless: true });
+  if (!page || page.isClosed()) {
+    page = await browser.newPage();
+    await page.goto(url, { waitUntil: 'networkidle' });
   }
-  if (!sharedPage || sharedPage.isClosed()) {
-    sharedPage = await sharedBrowser.newPage();
-    await sharedPage.goto(url, { waitUntil: 'networkidle' });
-  }
-  return sharedPage;
+  return page;
 }
 
-export async function captureDom(url: string) {
-  const page = await getSharedPage(url);
+export async function captureState(url: string) {
+  const p = await getPage(url);
+  await p.waitForTimeout(1000);
 
-  // Attente plus longue pour Firestore
-  await page.waitForTimeout(1500);
-
-  const cleanedHtml = await page.evaluate(() => {
-    const clone = document.body.cloneNode(true) as HTMLElement;
-    const elementsToRemove = clone.querySelectorAll('script, style, svg, noscript, iframe, link');
-    elementsToRemove.forEach((el) => el.remove());
-
-    const allElements = clone.querySelectorAll('*');
-    allElements.forEach((el) => {
-      // On garde uniquement les attributs sémantiques et stables
-      const attributesToKeep = ['id', 'name', 'placeholder', 'type', 'role', 'aria-label', 'data-testid', 'value'];
-      const attrs = Array.from(el.attributes);
-
-      attrs.forEach((attr) => {
-        if (!attributesToKeep.includes(attr.name)) {
-          el.removeAttribute(attr.name);
-        }
-      });
-    });
-
-    return clone.innerHTML
-      .replace(/<!--[\s\S]*?-->/g, '')
-      .replace(/>\s+</g, '><')
-      .trim();
+  const elements = await p.evaluate(() => {
+    return Array.from(document.querySelectorAll('button, input, select, span, h1, h2'))
+      .map(el => {
+        const htmlEl = el as HTMLElement;
+        return {
+          tag: htmlEl.tagName.toLowerCase(),
+          text: htmlEl.innerText?.trim() || htmlEl.getAttribute('value') || '',
+          placeholder: htmlEl.getAttribute('placeholder') || '',
+          role: htmlEl.getAttribute('role') || '',
+          isVisible: htmlEl.offsetWidth > 0 && htmlEl.offsetHeight > 0
+        };
+      })
+      .filter(e => e.isVisible && (e.text || e.placeholder || e.tag === 'input'));
   });
 
-  return { htmlDom: cleanedHtml };
-}
-
-export async function takeScreenshot(url: string, name: string) {
-  const page = await getSharedPage(url);
-  const screenshotPath = path.join(process.cwd(), 'results', `${name}-${Date.now()}.png`);
-
-  if (!fs.existsSync(path.join(process.cwd(), 'results'))) {
-    fs.mkdirSync(path.join(process.cwd(), 'results'));
-  }
-
-  await page.screenshot({ path: screenshotPath, fullPage: true });
-  return { screenshotPath };
+  return { elements };
 }
 
 export async function closeBrowser() {
-  if (sharedBrowser) {
-    await sharedBrowser.close();
-    sharedBrowser = null;
-    sharedPage = null;
-  }
+  if (browser) await browser.close();
+  browser = null;
+  page = null;
 }

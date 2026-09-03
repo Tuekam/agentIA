@@ -1,9 +1,8 @@
 import { mistralClient } from '../llm/mistral';
 import { agentTools } from '../tools/definitions';
-import { captureDom, closeBrowser, takeScreenshot, getSharedPage } from '../tools/browser-manager';
+import { captureState, closeBrowser } from '../tools/browser-manager';
 import { writeTestFiles } from '../tools/file-system';
 import { runPlaywrightTest } from '../tools/test-runner';
-import { listProjectFiles } from '../tools/file-explorer';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const BASE_URL = 'http://localhost:3000';
@@ -12,31 +11,25 @@ export async function runAutonomousQA(intention: string) {
   let messages: any[] = [
     {
       role: 'system',
-      content: `Tu es un expert QA Playwright.application : ${BASE_URL}.
-RÈGLES D'OR :
-1. ANALYSE D'ERREUR : Si 'run_playwright_test' échoue, regarde attentivement ton code et le DOM fourni dans l'erreur.
-2. SÉLECTEURS STABLES : Utilise page.getByPlaceholder() ou page.getByText(). Pas de classes CSS.
-3. LOGIQUE : Vérifie toujours via 'inspect_dom' que tes actions ont bien modifié la page avant d'écrire le test final.`,
+      content: `Tu es un expert QA Playwright. Ecris un seul fichier de test complet (.spec.ts).
+REGLES ABSOLUES :
+1. URL : L'application est UNIQUEMENT sur ${BASE_URL}.
+2. NOM UNIQUE : Utilise des noms de taches uniques.
+3. EXECUTION : Tu DOIS appeler 'execute_test' après 'write_test'.`,
     },
-    {
-      role: 'user',
-      content: `Intention : "${intention}"`,
-    },
+    { role: 'user', content: intention },
   ];
 
   let isComplete = false;
-  let maxSteps = 12;
+  let steps = 10;
 
-  while (!isComplete && maxSteps > 0) {
-    maxSteps--;
-    console.log(`\n🧠 [Agent] Réflexion... (${maxSteps} restantes)`);
-
+  while (!isComplete && steps > 0) {
+    steps--;
     try {
       const response = await mistralClient.chat.completions.create({
         model: 'mistral-small-latest',
         messages,
         tools: agentTools as any,
-        tool_choice: 'auto'
       });
 
       const message = response.choices[0].message;
@@ -50,48 +43,38 @@ RÈGLES D'OR :
           const args = JSON.parse(toolCall.function.arguments);
           let result = '';
 
-          console.log(`🛠️  Action : ${name}`);
-
-          if (name === 'get_project_structure') {
-            result = JSON.stringify(listProjectFiles());
-          } else if (name === 'inspect_dom') {
-            result = JSON.stringify(await captureDom(BASE_URL));
-          } else if (name === 'take_screenshot') {
-            const res = await takeScreenshot(BASE_URL, args.name);
-            result = `Capture : ${res.screenshotPath}`;
-          } else if (name === 'evaluate_dom_action') {
-            const page = await getSharedPage(BASE_URL);
-            for (const action of args.actions) {
-              if (action.type === 'fill') await page.fill(action.selector, action.value);
-              if (action.type === 'click') await page.click(action.selector);
-              await page.waitForTimeout(500);
-            }
-            const postDom = await captureDom(BASE_URL);
-            result = `Action effectuée. Voici le DOM mis à jour pour vérifier : ${postDom.htmlDom}`;
-          } else if (name === 'write_test_files') {
-            result = writeTestFiles(args.pageObjectCode, args.specCode);
-          } else if (name === 'run_playwright_test') {
+          if (name === 'inspect_page') {
+            process.stdout.write("Inspection de la page... ");
+            result = JSON.stringify(await captureState(BASE_URL));
+            console.log("OK");
+          } else if (name === 'write_test') {
+            process.stdout.write("Ecriture du test... ");
+            result = writeTestFiles(args.code);
+            console.log("OK");
+          } else if (name === 'execute_test') {
+            process.stdout.write("Execution du test... ");
             result = await runPlaywrightTest();
-            if (result.includes('✅')) {
-               console.log("✅ TEST RÉUSSI");
-               isComplete = true;
+            if (result.includes('SUCCESS')) {
+              console.log("SUCCES");
+              isComplete = true;
             } else {
-               console.log("❌ ÉCHEC. Analyse de l'erreur par l'IA...");
+              console.log("ECHEC");
+              console.log("\n--- ERREUR DETECTION ---\n" + result + "\n----------------------\n");
             }
           }
 
           messages.push({ role: 'tool', name, content: result, tool_call_id: toolCall.id });
         }
       } else {
-        console.log(`\n🏁 Fin.`);
         isComplete = true;
       }
     } catch (error: any) {
       if (error.status === 429) {
-        console.log("⏳ Pause 10s (Rate limit)...");
-        await sleep(10000);
+        process.stdout.write("Attente rate limit... ");
+        await sleep(15000);
+        console.log("OK");
       } else {
-        console.error("Erreur :", error.message);
+        console.error("Erreur:", error.message);
         isComplete = true;
       }
     }
