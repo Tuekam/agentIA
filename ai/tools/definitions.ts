@@ -3,15 +3,11 @@ export const agentTools = [
     type: 'function',
     function: {
       name: 'get_project_structure',
-      description:
-        "Renvoie l'arborescence réelle des fichiers de test TypeScript/JavaScript dans le projet. Utilise cet outil OBLIGATOIREMENT avant d'écrire des fichiers pour connaître les chemins d'importation exacts.",
+      description: "Renvoie l'arborescence réelle des fichiers de test. À utiliser pour connaître les chemins d'importation.",
       parameters: {
         type: 'object',
         properties: {
-          directory: {
-            type: 'string',
-            description: 'Dossier à inspecter (par défaut "tests")',
-          },
+          directory: { type: 'string', description: 'Dossier à inspecter (défaut "tests")' },
         },
       },
     },
@@ -20,8 +16,7 @@ export const agentTools = [
     type: 'function',
     function: {
       name: 'inspect_dom',
-      description:
-        "Inspecte la page et renvoie les éléments interactifs, la présence d'une recherche/pagination, et les éléments visibles à l'écran.",
+      description: "Capture le HTML actuel de la page. Cette capture conserve l'état des actions précédentes (session partagée).",
       parameters: {
         type: 'object',
         properties: {
@@ -34,9 +29,23 @@ export const agentTools = [
   {
     type: 'function',
     function: {
+      name: 'take_screenshot',
+      description: "Prend une capture d'écran de la page actuelle. Utile pour débugger visuellement les erreurs.",
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string' },
+          name: { type: 'string', description: "Nom du fichier (ex: 'erreur-suppression')" },
+        },
+        required: ['url', 'name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'evaluate_dom_action',
-      description:
-        "Exécute des actions réelles sur la page (saisie, clic, recherche) pour valider l'impact sur le DOM avant la génération du code de test.",
+      description: "Exécute des actions réelles (fill, click) sur la page en cours. L'état est conservé.",
       parameters: {
         type: 'object',
         properties: {
@@ -47,10 +56,7 @@ export const agentTools = [
               type: 'object',
               properties: {
                 type: { type: 'string', enum: ['fill', 'click', 'press'] },
-                selector: {
-                  type: 'string',
-                  description: 'Sélecteur CSS ou textuel (ex: input[placeholder="..."], button)',
-                },
+                selector: { type: 'string' },
                 value: { type: 'string' },
               },
               required: ['type', 'selector'],
@@ -65,21 +71,12 @@ export const agentTools = [
     type: 'function',
     function: {
       name: 'write_test_files',
-      description:
-        'Écrit ou met à jour les fichiers de test Playwright (POM et Spec) sur le disque.',
+      description: 'Écrit les fichiers de test Playwright (POM et Spec).',
       parameters: {
         type: 'object',
         properties: {
           pageObjectCode: { type: 'string' },
           specCode: { type: 'string' },
-          pageObjectPath: {
-            type: 'string',
-            description: 'Chemin relatif exact du fichier Page Object',
-          },
-          specPath: {
-            type: 'string',
-            description: 'Chemin relatif exact du fichier Spec',
-          },
         },
         required: ['pageObjectCode', 'specCode'],
       },
@@ -89,7 +86,7 @@ export const agentTools = [
     type: 'function',
     function: {
       name: 'run_playwright_test',
-      description: 'Exécute la suite de tests Playwright sur Chromium.',
+      description: 'Exécute le test généré.',
       parameters: {
         type: 'object',
         properties: {},

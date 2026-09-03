@@ -1,30 +1,16 @@
 import { test, expect } from '@playwright/test';
-import { TasksPage } from '../autonomous-tasks.page';
+import { TaskPage } from '../autonomous-tasks.page';
 
-test.describe('Gestion des tâches', () => {
-  let tasksPage: TasksPage;
+test('Ajouter une tâche RETRY TEST et vérifier sa présence', async ({ page }) => {
+  const taskPage = new TaskPage(page);
+  await taskPage.goto();
 
-  test.beforeEach(async ({ page }) => {
-    tasksPage = new TasksPage(page);
-    await page.goto('http://localhost:3000');
-  });
+  // Vérifier que la page est bien chargée
+  await expect(taskPage.title).toBeVisible();
 
-  test('Ajouter une nouvelle tâche et supprimer une tâche existante', async () => {
-    const newTaskName = 'JULESPLAY';
-    const taskToDelete = 'JULES';
+  // Ajouter une nouvelle tâche
+  await taskPage.addTask('RETRY TEST');
 
-    // Ajouter la nouvelle tâche
-    await tasksPage.addTask(newTaskName);
-    
-    // Vérifier que la tâche a été ajoutée
-    const taskExists = await tasksPage.taskExists(newTaskName);
-    expect(taskExists).toBeTruthy();
-
-    // Supprimer la tâche existante
-    await tasksPage.deleteTask(taskToDelete);
-
-    // Vérifier que la tâche supprimée n'existe plus
-    const taskDeleted = await tasksPage.taskExists(taskToDelete);
-    expect(taskDeleted).toBeFalsy();
-  });
+  // Vérifier que la tâche est bien présente dans la liste
+  await expect(taskPage.taskRetryTest).toBeVisible();
 });
