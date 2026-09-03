@@ -11,11 +11,19 @@ export type InteractiveElement = {
   className?: string;
 };
 
+export type PaginationAndSearchInfo = {
+  hasSearchInput: boolean;
+  searchPlaceholder?: string;
+  hasPaginationControls: boolean;
+  paginationText?: string;
+};
+
 export type PageSnapshot = {
   url: string;
   title: string;
   interactiveElements: InteractiveElement[];
-  structureSummary: string[];
+  pageContext: PaginationAndSearchInfo;
+  visibleItemsSummary: string[];
 };
 
 export async function inspectPage(url: string): Promise<PageSnapshot> {
@@ -56,23 +64,36 @@ export async function inspectPage(url: string): Promise<PageSnapshot> {
     });
   });
 
-  // 2. Extraction des conteneurs et des structures de texte (sans dépendre des classes CSS instables)
-  const structureSummary = await page.evaluate(() => {
-    const listContainers = Array.from(
-      document.querySelectorAll('ul, ol, table, tbody, [role="list"], div')
-    ).filter((el) => el.children.length > 1 && el.clientHeight > 0);
+  // 2. Recherche de fonctionnalités clés : Barre de recherche et Pagination
+  const pageContext = await page.evaluate(() => {
+    const searchInput = document.querySelector(
+      'input[type="search"], input[placeholder*="search" i], input[placeholder*="recherch" i], input[placeholder*="filtr" i]'
+    ) as HTMLInputElement | null;
 
-    return listContainers.slice(0, 10).map((el) => {
-      const htmlEl = el as HTMLElement;
-      const sampleText = htmlEl.innerText
-        ?.slice(0, 80)
-        .replace(/\s+/g, ' ')
-        .trim();
-      const tag = el.tagName.toLowerCase();
-      const role = el.getAttribute('role') || 'aucun';
+    const paginationEl = document.querySelector(
+      '[class*="pagination" i], [aria-label*="pagination" i], div:has(button[aria-label*="next" i]), nav'
+    ) as HTMLElement | null;
 
-      return `Tag: <${tag}> | Role: "${role}" | Contenu texte exemple: "${sampleText}"`;
-    });
+    return {
+      hasSearchInput: !!searchInput,
+      searchPlaceholder: searchInput?.placeholder || undefined,
+      hasPaginationControls: !!paginationEl,
+      paginationText: paginationEl?.innerText?.replace(/\s+/g, ' ').trim() || undefined,
+    };
+  });
+
+  // 3. Capture des textes et éléments de liste actuellement visibles
+  const visibleItemsSummary = await page.evaluate(() => {
+    const items = Array.from(
+      document.querySelectorAll('li, tr, [role="listitem"], div[class*="task" i], div[class*="item" i]')
+    );
+
+    const visibleTextList = items
+      .map((el) => (el as HTMLElement).innerText?.replace(/\s+/g, ' ').trim())
+      .filter((text): text is string => !!text && text.length > 0 && text.length < 150);
+
+    // Supprime les doublons éventuels
+    return Array.from(new Set(visibleTextList)).slice(0, 15);
   });
 
   await browser.close();
@@ -81,6 +102,7 @@ export async function inspectPage(url: string): Promise<PageSnapshot> {
     url,
     title,
     interactiveElements,
-    structureSummary,
+    pageContext,
+    visibleItemsSummary,
   };
 }

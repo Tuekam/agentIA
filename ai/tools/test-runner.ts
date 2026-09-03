@@ -1,4 +1,3 @@
-// ai/tools/test-runner.ts
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
@@ -14,13 +13,12 @@ export async function runPlaywrightTest(): Promise<string> {
   const currentSpec = fs.existsSync(specPath) ? fs.readFileSync(specPath, 'utf-8') : 'Non trouvé';
 
   try {
-    // Exécution uniquement sur Chromium pour la phase d'agent autonome
-    const { stdout } = await execAsync('npx playwright test tests/features/tasks/scenarios/autonomous-created.spec.ts --project=chromium --reporter=line');
-    return ` SUCCÈS DU TEST !\nLe test est passé avec succès sur Chromium.`;
+    const { stdout } = await execAsync('npx playwright test tests/features/tasks/scenarios/autonomous-created.spec.ts --project=chromium --reporter=list');
+    return `✅ SUCCÈS DU TEST !\nLe test s'est exécuté sans erreur.`;
   } catch (error: any) {
     const errorLog = error.stdout || error.stderr || error.message;
 
-    return ` ÉCHEC DU TEST.
+    return `❌ ÉCHEC DU TEST PLAYWRIGHT.
 
 --- CODE PAGE OBJECT ACTUEL ---
 ${currentPOM}
@@ -28,9 +26,9 @@ ${currentPOM}
 --- CODE SPEC ACTUEL ---
 ${currentSpec}
 
---- DÉTAILS DE L'ERREUR PLAYWRIGHT ---
+--- ERREUR BRUTE PLAYWRIGHT ---
 ${errorLog}
 
-CONSIGNE : N'utilise pas de méthodes renvoyant un boolean. Utilise 'await expect(locator).toBeVisible()' directement dans le Spec. Corrige le code et rappelle 'write_test_files'.`;
+Analyse l'erreur Playwright ci-dessus, modifie le code via 'write_test_files' pour corriger le problème, puis relance le test.`;
   }
 }

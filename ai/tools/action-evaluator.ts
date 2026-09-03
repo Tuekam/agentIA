@@ -21,34 +21,38 @@ export async function evaluateDomAction(url: string, actions: DOMAction[]) {
       } else if (action.type === 'press' && action.value) {
         await page.press(action.selector, action.value);
       }
-      await page.waitForTimeout(500); // Temps de réponse JS local
+      await page.waitForTimeout(500);
     }
 
-    // Capture des éléments texte créés pour fournir un Locator Playwright robuste à l'agent
-    const locatorSuggestions = await page.evaluate(() => {
-      const elements = Array.from(document.querySelectorAll('body *'));
-      const meaningfulElements = elements.filter((el) => {
-        const text = el.textContent?.trim();
-        return (
-          text &&
-          el.children.length === 0 &&
-          text.length > 0 &&
-          text.length < 50
+    // Inspection générique du DOM après action
+    const domStructure = await page.evaluate(() => {
+      // Repère les conteneurs de listes/cartes et leurs boutons internes
+      const containerElements = Array.from(
+        document.querySelectorAll('li, tr, [role="listitem"], div[class*="task" i], div[class*="item" i]')
+      );
+
+      const itemsDetail = containerElements.map((el) => {
+        const buttons = Array.from(el.querySelectorAll('button, [role="button"], a')).map(
+          (btn) => ({
+            text: (btn as HTMLElement).innerText?.trim() || btn.getAttribute('aria-label') || 'unnamed button',
+            tagName: btn.tagName.toLowerCase(),
+          })
         );
+
+        return {
+          textContext: (el as HTMLElement).innerText?.replace(/\s+/g, ' ').trim(),
+          internalButtons: buttons,
+        };
       });
 
-      return meaningfulElements.slice(-10).map((el) => ({
-        text: el.textContent?.trim(),
-        tagName: el.tagName.toLowerCase(),
-        suggestedPlaywrightLocator: `page.getByText("${el.textContent?.trim()}", { exact: true })`,
-      }));
+      return itemsDetail;
     });
 
     await browser.close();
 
     return {
       success: true,
-      elementsFoundAfterAction: locatorSuggestions,
+      detectedListContainers: domStructure,
     };
   } catch (error: any) {
     await browser.close();

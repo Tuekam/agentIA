@@ -20,7 +20,8 @@ export const agentTools = [
     type: 'function',
     function: {
       name: 'inspect_dom',
-      description: "Inspecte le DOM initial d'une URL.",
+      description:
+        "Inspecte la page et renvoie les éléments interactifs, la présence d'une recherche/pagination, et les éléments visibles à l'écran.",
       parameters: {
         type: 'object',
         properties: {
@@ -35,7 +36,7 @@ export const agentTools = [
     function: {
       name: 'evaluate_dom_action',
       description:
-        "Simule l'ajout/suppression d'un élément sur la page et RENVOIE LES LOCATORS PLAYWRIGHT EXACTS à utiliser. Exécute OBLIGATOIREMENT cet outil avant write_test_files pour savoir comment cibler l'élément créé.",
+        "Exécute des actions réelles sur la page (saisie, clic, recherche) pour valider l'impact sur le DOM avant la génération du code de test.",
       parameters: {
         type: 'object',
         properties: {
@@ -48,7 +49,7 @@ export const agentTools = [
                 type: { type: 'string', enum: ['fill', 'click', 'press'] },
                 selector: {
                   type: 'string',
-                  description: 'Ex: input[placeholder="..."], button',
+                  description: 'Sélecteur CSS ou textuel (ex: input[placeholder="..."], button)',
                 },
                 value: { type: 'string' },
               },
@@ -88,7 +89,7 @@ export const agentTools = [
     type: 'function',
     function: {
       name: 'run_playwright_test',
-      description: 'Exécute la suite de tests Playwright.',
+      description: 'Exécute la suite de tests Playwright sur Chromium.',
       parameters: {
         type: 'object',
         properties: {},
