@@ -1,38 +1,49 @@
 import { mistralClient } from '../llm/mistral';
 import { agentTools } from '../tools/definitions';
-import { captureState, closeBrowser } from '../tools/browser-manager';
-import { writeTestFiles } from '../tools/file-system';
-import { runPlaywrightTest } from '../tools/test-runner';
+import {
+  captureState, closeBrowser, navigateTo, clickElement,
+  fillField, clickText, waitForText, takeScreenshot
+} from '../tools/browser-manager';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const BASE_URL = 'http://localhost:3000';
 
 export async function runAutonomousQA(intention: string) {
   let messages: any[] = [
     {
       role: 'system',
-      content: `Tu es un expert QA Playwright. Ecris un seul fichier de test complet (.spec.ts).
-REGLES ABSOLUES :
-1. URL : L'application est UNIQUEMENT sur ${BASE_URL}.
-2. NOM UNIQUE : Utilise des noms de taches uniques.
-3. EXECUTION : Tu DOIS appeler 'execute_test' après 'write_test'.`,
+      content: `Tu es un agent de navigation autonome utilisant Playwright et tu va tester l'application de toi meme sans attendre la reponse l'utilisateur.
+TON BUT : Realiser l'intention utilisateur en direct sur le site.
+
+REGLES DE REFLEXION :
+1. PENSEE : Avant CHAQUE action, tu dois expliquer ce que tu vois et pourquoi tu choisis cette action.
+2. ANALYSE : Regarde attentivement l'etat renvoye. n'oublie pas qu'il y'a les elements marqués.
+4. PRUDENCE : Ne repete pas la meme action inutilement.
+
+SÉLECTEURS : Privilegie 'click_text' pour les boutons avec du texte .`,
     },
     { role: 'user', content: intention },
   ];
 
   let isComplete = false;
-  let steps = 10;
+  let steps = 20;
 
   while (!isComplete && steps > 0) {
     steps--;
     try {
+      // On force le modele a produire du texte avant les outils si possible
       const response = await mistralClient.chat.completions.create({
-        model: 'mistral-small-latest',
+        model: 'open-mistral-7b',
         messages,
         tools: agentTools as any,
+        tool_choice: 'auto'
       });
 
       const message = response.choices[0].message;
+
+      if (message.content) {
+        console.log(`\n[AGENT PENSEE]: ${message.content}`);
+      }
+
       messages.push(message);
 
       if (message.tool_calls) {
@@ -43,41 +54,50 @@ REGLES ABSOLUES :
           const args = JSON.parse(toolCall.function.arguments);
           let result = '';
 
-          if (name === 'inspect_page') {
-            process.stdout.write("Inspection de la page... ");
-            result = JSON.stringify(await captureState(BASE_URL));
-            console.log("OK");
-          } else if (name === 'write_test') {
-            process.stdout.write("Ecriture du test... ");
-            result = writeTestFiles(args.code);
-            console.log("OK");
-          } else if (name === 'execute_test') {
-            process.stdout.write("Execution du test... ");
-            result = await runPlaywrightTest();
-            if (result.includes('SUCCESS')) {
-              console.log("SUCCES");
-              isComplete = true;
-            } else {
-              console.log("ECHEC");
-              console.log("\n--- ERREUR DETECTION ---\n" + result + "\n----------------------\n");
-            }
+          console.log(`[ACTION]: ${name}`);
+
+          if (name === 'navigate_to') {
+            const state = await navigateTo(args.url);
+            result = JSON.stringify(state);
+          } else if (name === 'inspect_view') {
+            result = JSON.stringify(await captureState());
+          } else if (name === 'click_button') {
+            const state = await clickElement(args.selector);
+            result = JSON.stringify(state);
+          } else if (name === 'click_text') {
+            const state = await clickText(args.text);
+            result = JSON.stringify(state);
+          } else if (name === 'wait_for_text') {
+            const state = await waitForText(args.text);
+            result = JSON.stringify(state);
+          } else if (name === 'fill_input') {
+            const state = await fillField(args.selector, args.value);
+            result = JSON.stringify(state);
+          } else if (name === 'take_screenshot') {
+            const res = await takeScreenshot(args.name);
+            result = JSON.stringify(res);
+          } else if (name === 'finish_test') {
+            console.log("\n--- RESULTAT FINAL ---");
+            console.log(args.summary);
+            isComplete = true;
           }
 
           messages.push({ role: 'tool', name, content: result, tool_call_id: toolCall.id });
         }
-      } else {
+      } else if (!message.content) {
+        // Si pas de texte et pas d'outil, on s'arrete pour eviter la boucle infinie
         isComplete = true;
       }
     } catch (error: any) {
       if (error.status === 429) {
-        process.stdout.write("Attente rate limit... ");
-        await sleep(15000);
-        console.log("OK");
+        console.log("Attente (Rate Limit)...");
+        await sleep(10000);
       } else {
         console.error("Erreur:", error.message);
         isComplete = true;
       }
     }
   }
+  await sleep(2000);
   await closeBrowser();
 }
