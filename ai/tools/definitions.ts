@@ -15,7 +15,7 @@ export const agentTools = [
     type: 'function',
     function: {
       name: 'inspect_view',
-      description: "Regarde l'etat actuel du site (URL, modales et elements numerotés).",
+      description: "Retourne les elements de la page avec leurs IDs pour l'interaction.",
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -32,6 +32,20 @@ export const agentTools = [
           value: { type: 'string', description: "Texte a saisir ou touche (ex: 'Enter')" }
         },
         required: ['id', 'action'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'clear_input',
+      description: "Efface completement le contenu d'un champ de saisie (input) via son ID.",
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'number' }
+        },
+        required: ['id'],
       },
     },
   },
