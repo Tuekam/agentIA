@@ -1,8 +1,7 @@
 import { mistralClient } from '../llm/mistral';
 import { agentTools } from '../tools/definitions';
 import {
-  captureState, closeBrowser, navigateTo, clickElement,
-  fillField, clickText, waitForText, takeScreenshot
+  captureState, closeBrowser, navigateTo, interactWithElement, takeScreenshot, mouseClick
 } from '../tools/browser-manager';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -11,26 +10,24 @@ export async function runAutonomousQA(intention: string) {
   let messages: any[] = [
     {
       role: 'system',
-      content: `Tu es un agent de navigation autonome utilisant Playwright et tu va tester l'application de toi meme sans attendre la reponse l'utilisateur.
-TON BUT : Realiser l'intention utilisateur en direct sur le site.
+      content: `Tu es un agent de navigation autonome (Browser Agent)
+TON BUT : Realiser l'intention utilisateur en direct sur le site sans lui poser des question.
 
-REGLES DE REFLEXION :
-1. PENSEE : Avant CHAQUE action, tu dois expliquer ce que tu vois et pourquoi tu choisis cette action.
-2. ANALYSE : Regarde attentivement l'etat renvoye. n'oublie pas qu'il y'a les elements marqués.
-4. PRUDENCE : Ne repete pas la meme action inutilement.
-
-SÉLECTEURS : Privilegie 'click_text' pour les boutons avec du texte .`,
+REGLES :
+1. ANALYSE : Utilise 'inspect_view' pour voir les IDs et coordonnees x,y.
+2. ACTION : Une seule action a la fois. Utilise 'interact_with_element' (clic technique) ou 'mouse_click' (clic souris reel).
+3. VERIFICATION : Apres une action (ex: ajouter), tu DOIS appeler 'inspect_view' pour verifier le resultat avant de continuer.
+4. FIN : Tu DOIS obligatoirement appeler 'finish_test' avec un resume quand tu as terminé.`,
     },
     { role: 'user', content: intention },
   ];
 
   let isComplete = false;
-  let steps = 20;
+  let steps = 25;
 
   while (!isComplete && steps > 0) {
     steps--;
     try {
-      // On force le modele a produire du texte avant les outils si possible
       const response = await mistralClient.chat.completions.create({
         model: 'open-mistral-7b',
         messages,
@@ -39,11 +36,7 @@ SÉLECTEURS : Privilegie 'click_text' pour les boutons avec du texte .`,
       });
 
       const message = response.choices[0].message;
-
-      if (message.content) {
-        console.log(`\n[AGENT PENSEE]: ${message.content}`);
-      }
-
+      if (message.content) console.log(`\n[AGENT]: ${message.content}`);
       messages.push(message);
 
       if (message.tool_calls) {
@@ -57,40 +50,29 @@ SÉLECTEURS : Privilegie 'click_text' pour les boutons avec du texte .`,
           console.log(`[ACTION]: ${name}`);
 
           if (name === 'navigate_to') {
-            const state = await navigateTo(args.url);
-            result = JSON.stringify(state);
+            result = JSON.stringify(await navigateTo(args.url));
           } else if (name === 'inspect_view') {
             result = JSON.stringify(await captureState());
-          } else if (name === 'click_button') {
-            const state = await clickElement(args.selector);
-            result = JSON.stringify(state);
-          } else if (name === 'click_text') {
-            const state = await clickText(args.text);
-            result = JSON.stringify(state);
-          } else if (name === 'wait_for_text') {
-            const state = await waitForText(args.text);
-            result = JSON.stringify(state);
-          } else if (name === 'fill_input') {
-            const state = await fillField(args.selector, args.value);
-            result = JSON.stringify(state);
+          } else if (name === 'interact_with_element') {
+            result = JSON.stringify(await interactWithElement(args.id, args.action, args.value));
+          } else if (name === 'mouse_click') {
+            result = JSON.stringify(await mouseClick(args.x, args.y));
           } else if (name === 'take_screenshot') {
-            const res = await takeScreenshot(args.name);
-            result = JSON.stringify(res);
+            result = JSON.stringify(await takeScreenshot(args.name));
           } else if (name === 'finish_test') {
-            console.log("\n--- RESULTAT FINAL ---");
-            console.log(args.summary);
+            console.log("\n--- INTENTION TERMINEE ---\n" + args.summary);
             isComplete = true;
+            result = "Success";
           }
 
           messages.push({ role: 'tool', name, content: result, tool_call_id: toolCall.id });
         }
-      } else if (!message.content) {
-        // Si pas de texte et pas d'outil, on s'arrete pour eviter la boucle infinie
+      } else {
+        // Fin de la boucle si l'IA envoie du texte sans outil
         isComplete = true;
       }
     } catch (error: any) {
       if (error.status === 429) {
-        console.log("Attente (Rate Limit)...");
         await sleep(10000);
       } else {
         console.error("Erreur:", error.message);
