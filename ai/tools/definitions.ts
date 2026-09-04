@@ -15,7 +15,7 @@ export const agentTools = [
     type: 'function',
     function: {
       name: 'inspect_view',
-      description: "Retourne les elements de la page avec leurs IDs pour l'interaction.",
+      description: "Regarde l'etat actuel du site (URL, modales et elements numerotés).",
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -38,8 +38,35 @@ export const agentTools = [
   {
     type: 'function',
     function: {
+      name: 'select_option',
+      description: "Choisis une option dans un menu deroulant (select) via son ID.",
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'number' },
+          value: { type: 'string', description: "Valeur de l'option (ex: 'true', 'createdAt')" }
+        },
+        required: ['id', 'value'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'press_key',
+      description: "Envoie une touche clavier (ArrowDown, ArrowUp, Enter, Escape).",
+      parameters: {
+        type: 'object',
+        properties: { key: { type: 'string' } },
+        required: ['key'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'take_screenshot',
-      description: "Prend une photo de l'ecran pour analyse visuelle.",
+      description: "Prend une capture d'ecran pour le debug visuel.",
       parameters: {
         type: 'object',
         properties: { name: { type: 'string' } },
@@ -51,10 +78,10 @@ export const agentTools = [
     type: 'function',
     function: {
       name: 'finish_test',
-      description: "Termine le test et fournit un rapport complet.",
+      description: "Termine la session quand l'intention est remplie.",
       parameters: {
         type: 'object',
-        properties: { summary: { type: 'string', description: "Resume des actions et resultats." } },
+        properties: { summary: { type: 'string' } },
         required: ['summary'],
       },
     },

@@ -7,15 +7,12 @@ let page: Page | null = null;
 
 export async function getPage(url?: string): Promise<Page> {
   if (!browser) {
-    browser = await chromium.launch({
-      headless: false,
-      slowMo: 800
-    });
+    browser = await chromium.launch({ headless: false, slowMo: 500 });
   }
   if (!page || page.isClosed()) {
     page = await browser.newPage();
     await page.setViewportSize({ width: 1280, height: 720 });
-    if (url) await page.goto(url, { waitUntil: 'networkidle' });
+    if (url) await page.goto(url, { waitUntil: 'load' });
   }
   return page;
 }
@@ -55,9 +52,13 @@ async function moveVisualMouse(p: Page, x: number, y: number) {
 
 export async function captureState() {
   const p = await getPage();
-  // On attend que les actions asynchrones (Firestore, React) soient terminées
-  await p.waitForLoadState('networkidle').catch(() => {});
-  await p.waitForTimeout(800);
+
+  // Attente cruciale : on attend qu'un element de l'app apparaisse (timeout 10s)
+  await p.waitForSelector('h1, input, button', { state: 'visible', timeout: 10000 }).catch(() => {
+    console.log("[DEBUG]: Aucun element structurant trouvé après 10s.");
+  });
+
+  await p.waitForTimeout(1000);
 
   const state = await p.evaluate(() => {
     document.querySelectorAll('[data-ai-id]').forEach(el => el.removeAttribute('data-ai-id'));
@@ -80,7 +81,7 @@ export async function captureState() {
         y: Math.round(rect.top + rect.height / 2),
         isVisible
       };
-    }).filter(e => e.isVisible && (e.tag === 'input' || e.tag === 'button' || e.text || e.pld));
+    }).filter(e => e.isVisible && (e.tag === 'input' || e.tag === 'button' || e.tag === 'select' || e.text || e.pld));
 
     return { elements, modalVisible: !!modal, url: window.location.href };
   });
@@ -101,28 +102,51 @@ export async function interactWithElement(id: number, action: 'click' | 'fill' |
     else if (action === 'click') await locator.click({ force: true });
     else if (action === 'press' && value) await locator.press(value);
 
-    // Retourne SYSTEMATIQUEMENT le nouvel etat après l'action
     return await captureState();
   } catch (e: any) {
-    return { error: "Action échouée : " + e.message };
+    return { error: e.message };
   }
+}
+
+export async function selectOption(id: number, value: string) {
+  try {
+    const p = await getPage();
+    const locator = p.locator(`[data-ai-id="${id}"]`);
+    const box = await locator.boundingBox();
+    if (box) await moveVisualMouse(p, box.x + box.width / 2, box.y + box.height / 2);
+
+    await locator.selectOption(value);
+    return await captureState();
+  } catch (e: any) {
+    return { error: e.message };
+  }
+}
+
+export async function pressKey(key: string) {
+  const p = await getPage();
+  await p.keyboard.press(key);
+  return await captureState();
 }
 
 export async function navigateTo(url: string) {
   const p = await getPage();
-  await p.goto(url, { waitUntil: 'networkidle' });
+  await p.goto(url, { waitUntil: 'load' });
   return await captureState();
 }
 
 export async function takeScreenshot(name: string) {
   const p = await getPage();
-  const screenshotPath = path.join(process.cwd(), 'results', `${name}-${Date.now()}.png`);
   if (!fs.existsSync('results')) fs.mkdirSync('results');
+  const screenshotPath = `results/${name}-${Date.now()}.png`;
   await p.screenshot({ path: screenshotPath, fullPage: true });
-  return { status: "Capture enregistree", path: screenshotPath };
+  return { status: "OK", path: screenshotPath };
 }
 
 export async function closeBrowser() {
-  if (browser) await browser.close();
+  if (browser) {
+    try {
+      await browser.close();
+    } catch (e) {}
+  }
   browser = null; page = null;
 }
