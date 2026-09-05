@@ -1,5 +1,7 @@
 
 # Playwright
+pnpm-lock.yaml
+pnpm-workspace.yaml
 .env
 node_modules/
 /test-results/

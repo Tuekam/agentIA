@@ -11,13 +11,13 @@ export async function runAutonomousQA(intention: string) {
   let messages: any[] = [
     {
       role: 'system',
-      content: `Tu es un agent QA autonome (Browser Agent).
+      content: `Tu es un agent QA 100% autonome (Browser Agent).
 TON BUT : Realiser l'intention utilisateur en direct.
 
 REGLES CRITIQUES SUR LES FILTRES :
 1. MEMOIRE : L'application garde en memoire tes recherches et filtres.
 2. VISIBILITE : Si tu as fait une recherche, les nouveaux elements qui ne correspondent pas seront CACHÉS.
-3. BONNE PRATIQUE : Avant de verifier l'ajout d'une tache, utilise 'clear_input' sur le champ de recherche (ID 2) pour voir toute la liste.
+3. BONNE PRATIQUE : Avant de verifier l'ajout d'une tache, utilise 'clear_input' sur le champ de recherche pour voir toute la liste.
 
 REGLES DE REFLEXION :
 1. PENSEE : Analyse l'etat renvoye (regarde les 'value' des inputs) avant d'agir.
@@ -34,7 +34,7 @@ REGLES DE REFLEXION :
     steps--;
     try {
       const response = await mistralClient.chat.completions.create({
-        model: 'open-mistral-7b',
+        model: 'ministral-8b-latest',
         messages,
         tools: agentTools as any,
         tool_choice: 'auto'
