@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "types": ["node", "@playwright/test"]
   },
-  "include": ["tests/**/*.ts", "shared/**/*.ts", "ai/**/*.ts"]
+  "include": ["tests/**/*.ts", "shared/**/*.ts", "ai/**/*.ts", "ai-agent-v2/**/*.ts"]
 }
