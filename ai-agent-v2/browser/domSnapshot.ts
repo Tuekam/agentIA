@@ -21,6 +21,8 @@ export interface ElementInfo {
   isTrigger: boolean;
   x: number;
   y: number;
+  /** Score de pertinence pour le tri (interne) */
+  score?: number;
 }
 
 export interface FormInfo {
@@ -44,16 +46,6 @@ export interface Snapshot {
 
 /**
  * Code exécuté dans le contexte de la page (via page.evaluate).
- *
- * IMPORTANT : ceci est une CHAÎNE DE CARACTÈRES brute, volontairement non
- * écrite comme une fonction TypeScript normale. `tsx` compile ce fichier
- * avec l'option esbuild `keepNames: true`, qui injecte un helper
- * `__name(fn, "nom")` autour des fonctions/const. Ce helper vit dans le
- * scope du module Node compilé — s'il fonctionnait comme une fonction TS
- * normale, Playwright sérialiserait son `.toString()` pour l'exécuter tel
- * quel dans le navigateur, où `__name` n'existe pas => `ReferenceError`.
- * En gardant le code sous forme de chaîne, il n'est jamais passé par la
- * compilation esbuild et reste du JS pur, sûr à envoyer au navigateur.
  */
 const IN_PAGE_CAPTURE_SRC = `(cursorId) => {
   const INTERACTIVE_SELECTOR =
@@ -83,15 +75,22 @@ const IN_PAGE_CAPTURE_SRC = `(cursorId) => {
       })),
     };
   });
+
   const nodes = Array.from(doc.querySelectorAll(INTERACTIVE_SELECTOR)).filter(
     (el) => el.id !== cursorId,
   );
 
   const scored = [];
+  const viewportHeight = window.innerHeight;
+  const viewportWidth = window.innerWidth;
+
+  // Cache pour le groupage des éléments répétitifs (ex: listes de tâches)
+  const clusters = new Map();
 
   for (const el of nodes) {
     const htmlEl = el;
     const rect = htmlEl.getBoundingClientRect();
+    const isInViewport = rect.top >= 0 && rect.left >= 0 && rect.bottom <= viewportHeight && rect.right <= viewportWidth;
     const isVisible = rect.width > 0 && rect.height > 0 && getComputedStyle(htmlEl).visibility !== 'hidden';
     if (!isVisible) continue;
 
@@ -112,6 +111,15 @@ const IN_PAGE_CAPTURE_SRC = `(cursorId) => {
     else if (htmlEl.getAttribute('role')) role = htmlEl.getAttribute('role');
     else if (tag === 'a') role = 'link';
     else if (tag === 'input') role = 'text-input';
+
+    // Logique de groupage : on identifie les éléments similaires
+    const parentClass = htmlEl.parentElement?.className || '';
+    const clusterKey = tag + role + parentClass;
+    const clusterCount = (clusters.get(clusterKey) || 0) + 1;
+    clusters.set(clusterKey, clusterCount);
+
+    // Règle d'échantillonnage : on ne garde que les 5 premiers de chaque groupe répétitif
+    if (clusterCount > 5) continue;
 
     const info = {
       tag,
@@ -137,14 +145,17 @@ const IN_PAGE_CAPTURE_SRC = `(cursorId) => {
       isTrigger,
       x: Math.round(rect.left + rect.width / 2),
       y: Math.round(rect.top + rect.height / 2),
+      // Calcul du score de priorité
+      score: (isInViewport ? 100 : 0) + (['select', 'text-input', 'checkbox', 'radio'].indexOf(role) !== -1 ? 50 : role === 'button' ? 30 : 0)
     };
     scored.push({ el, info });
   }
 
-  const priority = (r) => (['select', 'text-input', 'checkbox', 'radio'].indexOf(r) !== -1 ? 0 : r === 'button' ? 1 : 2);
-  scored.sort((a, b) => priority(a.info.role) - priority(b.info.role));
+  // Tri par score (les plus importants et visibles d'abord)
+  scored.sort((a, b) => b.info.score - a.info.score);
 
-  const limited = scored.slice(0, 60);
+  // Augmentation du plafond à 150 éléments
+  const limited = scored.slice(0, 150);
   const truncated = scored.length > limited.length;
 
   const elements = limited.map((s, index) => {
@@ -153,6 +164,13 @@ const IN_PAGE_CAPTURE_SRC = `(cursorId) => {
   });
 
   const warnings = [];
+  // Détection des clusters tronqués pour avertir l'IA
+  for (const [key, count] of clusters) {
+    if (count > 5) {
+      warnings.push('Plusieurs éléments similaires détectés (' + count + ') : seuls les 5 premiers sont affichés pour alléger la vue.');
+    }
+  }
+
   doc.querySelectorAll('input').forEach((el) => {
     const input = el;
     const rect = input.getBoundingClientRect();
@@ -160,27 +178,6 @@ const IN_PAGE_CAPTURE_SRC = `(cursorId) => {
     if ((input.type === 'text' || input.type === 'search' || !input.type) && input.value.trim() !== '') {
       const label = input.placeholder || input.getAttribute('aria-label') || input.name || 'un champ de saisie';
       warnings.push('Filtre actif : le champ "' + label + '" contient "' + input.value + '" — des éléments qui ne correspondent pas peuvent être invisibles.');
-    }
-  });
-  doc.querySelectorAll('select').forEach((el) => {
-    const select = el;
-    const rect = select.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    if (select.options.length > 0 && select.selectedIndex > 0) {
-      let label = select.getAttribute('aria-label') || select.name;
-      if (!label && select.id) {
-        const forLabel = doc.querySelector('label[for="' + select.id + '"]');
-        if (forLabel) label = forLabel.textContent.trim();
-      }
-      if (!label) {
-        const parentLabel = select.closest('label');
-        if (parentLabel) label = (parentLabel.textContent || '').trim();
-      }
-      if (!label) {
-        const idAttr = select.id ? '#' + select.id : '';
-        label = 'une liste déroulante' + (idAttr ? ' (' + idAttr + ')' : '');
-      }
-      warnings.push('Filtre/option actif : "' + label + '" est réglé sur "' + select.options[select.selectedIndex].text + '" (pas la valeur par défaut) — cela peut limiter ce qui est affiché ou trié différemment.');
     }
   });
 
@@ -205,13 +202,11 @@ const IN_PAGE_CAPTURE_SRC = `(cursorId) => {
   };
 }`;
 
-// Reconstruit une vraie fonction à l'exécution (jamais vue par esbuild/tsx,
-// donc sans le helper __name) à partir de la chaîne ci-dessus.
 // eslint-disable-next-line no-eval
 const inPageCapture = (0, eval)(IN_PAGE_CAPTURE_SRC);
 
 export async function captureSnapshot(page: Page): Promise<Snapshot> {
-  await page.waitForTimeout(150); // laisse les éventuelles animations/rendus se stabiliser
+  await page.waitForTimeout(150);
   return page.evaluate(inPageCapture, '__ai_agent_cursor__');
 }
 
