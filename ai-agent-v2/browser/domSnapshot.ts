@@ -6,13 +6,29 @@ export interface ElementInfo {
   role: string;
   text: string;
   placeholder?: string;
+  name?: string;
+  type?: string;
   value?: string;
   checked?: boolean;
+  required?: boolean;
+  disabled?: boolean;
+  invalid?: boolean;
+  validationMessage?: string;
+  formId?: string;
+  options?: Array<{ label: string; value: string; selected: boolean; disabled: boolean }>;
   location: 'PAGE' | 'MODAL';
   /** true si cet élément peut révéler d'autres éléments (menu, select, details, aria-expanded) */
   isTrigger: boolean;
   x: number;
   y: number;
+}
+
+export interface FormInfo {
+  id: string;
+  action: string;
+  method: string;
+  valid: boolean;
+  invalidFields: Array<{ name: string; type: string; validationMessage: string }>;
 }
 
 export interface Snapshot {
@@ -22,6 +38,7 @@ export interface Snapshot {
   /** Alertes générées automatiquement : filtres actifs, pagination possible, etc. */
   warnings: string[];
   elements: ElementInfo[];
+  forms: FormInfo[];
   truncated: boolean;
 }
 
@@ -47,6 +64,25 @@ const IN_PAGE_CAPTURE_SRC = `(cursorId) => {
   doc.querySelectorAll('[data-ai-id]').forEach((el) => el.removeAttribute('data-ai-id'));
 
   const modal = doc.querySelector('[role="dialog"], .modal, [class*="modal" i], [aria-modal="true"]');
+  const forms = Array.from(doc.querySelectorAll('form')).map((form, index) => {
+    const formEl = form;
+    const id = formEl.id || 'form-' + index;
+    if (!formEl.id) formEl.setAttribute('data-ai-form-id', id);
+    const controls = Array.from(formEl.elements).filter((element) =>
+      element instanceof HTMLInputElement || element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement,
+    );
+    return {
+      id,
+      action: formEl.getAttribute('action') || '',
+      method: (formEl.getAttribute('method') || 'get').toLowerCase(),
+      valid: formEl.checkValidity(),
+      invalidFields: controls.filter((element) => !element.validity.valid).map((element) => ({
+        name: element.name,
+        type: element.type,
+        validationMessage: element.validationMessage,
+      })),
+    };
+  });
   const nodes = Array.from(doc.querySelectorAll(INTERACTIVE_SELECTOR)).filter(
     (el) => el.id !== cursorId,
   );
@@ -62,6 +98,7 @@ const IN_PAGE_CAPTURE_SRC = `(cursorId) => {
     const tag = htmlEl.tagName.toLowerCase();
     const inputEl = htmlEl;
     const isCheckable = tag === 'input' && (inputEl.type === 'checkbox' || inputEl.type === 'radio');
+    const isFormControl = tag === 'input' || tag === 'select' || tag === 'textarea';
 
     const isTrigger =
       tag === 'select' ||
@@ -81,8 +118,21 @@ const IN_PAGE_CAPTURE_SRC = `(cursorId) => {
       role,
       text: (htmlEl.innerText || htmlEl.getAttribute('aria-label') || '').trim().slice(0, 40),
       placeholder: htmlEl.getAttribute('placeholder') ? htmlEl.getAttribute('placeholder').slice(0, 40) : undefined,
+      name: isFormControl ? inputEl.name : undefined,
+      type: isFormControl ? (inputEl.type || tag) : undefined,
       value: isCheckable ? undefined : (inputEl.value !== undefined ? inputEl.value : undefined),
       checked: isCheckable ? inputEl.checked : undefined,
+      required: isFormControl ? inputEl.required : undefined,
+      disabled: isFormControl ? inputEl.disabled : undefined,
+      invalid: isFormControl ? !inputEl.validity.valid : undefined,
+      validationMessage: isFormControl ? inputEl.validationMessage : undefined,
+      formId: isFormControl && inputEl.form ? (inputEl.form.id || inputEl.form.getAttribute('data-ai-form-id') || '') : undefined,
+      options: tag === 'select' ? Array.from(inputEl.options).map((option) => ({
+        label: (option.textContent || '').trim(),
+        value: option.value,
+        selected: option.selected,
+        disabled: option.disabled,
+      })) : undefined,
       location: modal && modal.contains(el) ? 'MODAL' : 'PAGE',
       isTrigger,
       x: Math.round(rect.left + rect.width / 2),
@@ -150,6 +200,7 @@ const IN_PAGE_CAPTURE_SRC = `(cursorId) => {
     modalOpen: !!modal,
     warnings: warnings,
     elements: elements,
+    forms: forms,
     truncated: truncated,
   };
 }`;
@@ -167,15 +218,21 @@ export async function captureSnapshot(page: Page): Promise<Snapshot> {
 export interface SnapshotDiff {
   newlyRevealed: string[];
   disappeared: string[];
+  changed: string[];
 }
 
 function signature(e: ElementInfo): string {
   return `${e.tag}|${e.role}|${e.text}|${e.placeholder ?? ''}`;
 }
 
+function stateSignature(e: ElementInfo): string {
+  return `${e.value ?? ''}|${e.checked ?? ''}|${e.required ?? ''}|${e.invalid ?? ''}|${e.validationMessage ?? ''}|${e.options?.map((option) => `${option.value}:${option.selected}`).join(',') ?? ''}`;
+}
+
 export function diffSnapshots(before: Snapshot, after: Snapshot): SnapshotDiff {
   const beforeSigs = new Set(before.elements.map(signature));
   const afterSigs = new Set(after.elements.map(signature));
+  const beforeBySignature = new Map(before.elements.map((element) => [signature(element), element]));
 
   const newlyRevealed = after.elements
     .filter((e) => !beforeSigs.has(signature(e)))
@@ -185,5 +242,12 @@ export function diffSnapshots(before: Snapshot, after: Snapshot): SnapshotDiff {
     .filter((e) => !afterSigs.has(signature(e)))
     .map((e) => `${e.role} "${e.text || e.placeholder || ''}"`);
 
-  return { newlyRevealed, disappeared };
+  const changed = after.elements
+    .filter((element) => {
+      const previous = beforeBySignature.get(signature(element));
+      return previous !== undefined && stateSignature(previous) !== stateSignature(element);
+    })
+    .map((element) => `[id=${element.id}] ${element.role} "${element.text || element.placeholder || ''}"`);
+
+  return { newlyRevealed, disappeared, changed };
 }

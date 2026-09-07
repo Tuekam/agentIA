@@ -2,6 +2,7 @@ export interface Scenario {
   name: string;
   goal: string;
   steps: string[];
+  level: number;
 }
 
 export interface ScenarioResult {

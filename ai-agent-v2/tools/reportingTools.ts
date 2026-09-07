@@ -12,6 +12,7 @@ export const recordScenarioTool = tool({
     name: z.string().describe('Nom court du scénario'),
     goal: z.string().describe('Ce que ce scénario doit vérifier, en une phrase'),
     steps: z.array(z.string()).describe('Étapes suggérées en langage naturel, dans l’ordre'),
+    level: z.number().int().min(0).max(5).describe('Niveau hiérarchique : 0 page, 1 navigation, 2 sections, 3 contrôles, 4 parcours nominaux, 5 cas négatifs'),
   }),
   execute: async (input) => {
     scenarioRegistry.push(input);
